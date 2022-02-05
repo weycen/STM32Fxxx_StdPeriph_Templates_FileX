@@ -50,7 +50,9 @@
 
 
 /* Types, Constants, Macros, Variables ---------------------------------------*/
-#define DEBUG_ENABLE 1
+#define DEBUG_ENABLE         1
+#define MEDIA_CHECK_ENABLE   0
+
 
 #if DEBUG_ENABLE
   #define DUBUG(fmt, args...)  do{ uartstdio_printf(fmt, ##args); }while(0)
@@ -64,26 +66,30 @@ struct led led_fxxx;
 
 uint32_t system_tick = 0; //系统时间戳
 
-#define COUNT_LENGTH  (4 * 256)
-uint32_t boot_count = 0;
-uint8_t _count[COUNT_LENGTH] = {0};
+#define  TEST_DATA_LENGTH  (4 * 256)
+uint8_t  test_data[TEST_DATA_LENGTH] = {0};
+uint32_t test_count = 0;
   
   
 /* 给FileX开的动态内存 */
 uint8_t media_memory[512];            // FileX工作内存, 必须为扇区大小（通常为 512 个字节）
+
 #if defined(FX_ENABLE_FAULT_TOLERANT)
 uint8_t fault_tolerant_memory[FX_FAULT_TOLERANT_MAXIMUM_LOG_FILE_SIZE];  // 容错模块所需内存, 为扇区大小整数倍, 且至少为3072
 #endif /* FX_ENABLE_FAULT_TOLERANT */
+
 
 /* FileX全局结构体 */
 FX_MEDIA     sdio_disk;
 FX_FILE      fx_file;
 
-#define PATH   "20201122-1234-2A.dz9"
+#define PATH   "count.dat"
 
+#if MEDIA_CHECK_ENABLE
+ULONG detected_errors;
 #define SRATCH_MEMORY_SIZE   (1024 * 16)
 UCHAR        sratch_memory[SRATCH_MEMORY_SIZE];
-  
+#endif
 
 /* Prototypes of private function --------------------------------------------*/
 void NVIC_Configuration(void);
@@ -100,7 +106,7 @@ void NVIC_Configuration(void);
 int main(void) {
   UINT status;
   ULONG bw;
-  ULONG detected_errors;
+  
   
   /* At this stage the microcontroller clock setting is already configured,
      this is done through SystemInit() function which is called from startup
@@ -110,20 +116,25 @@ int main(void) {
   */
   SystemInit();
   
+	
 //  /* Configure the NVIC Preemption Priority Bits */
 //  NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
   
+	
 #if defined(SWLIB_STM32F4)
   /* NVIC Configuration */
   NVIC_Configuration();
 #endif  // SWLIB_STM32F4
 
+	
   // 调试串口配置
   Com_LowLevel_Init();
   uartstdio_init(1, 256000);
-  DUBUG("\n1s-");
+	DUBUG("\n\n");
+  DUBUG("1s delay test begin\n");
   asmdelay_msec(1000);
-  DUBUG("-1s\n");    
+  DUBUG("1s delay test complete \n");    
+
 
   // 初始化板载led
 #if defined(SWLIB_STM32F4)
@@ -134,6 +145,7 @@ int main(void) {
     led_init(&led_fxxx, GPIOC, 13, LED_LEVEL_LOW, LED_PULL_NONE, 1000, 500);
 #endif  // SWLIB_STM32F1
     led_control(&led_fxxx, LED_REPEAT_MAX);
+
 
     /* Setup SysTick Timer for 10 msec interrupts.
      ------------------------------------------
@@ -167,96 +179,111 @@ int main(void) {
     while (1) { }
   }
 
-  DUBUG("size of 'sdio_disk' -- %d bytes \n", sizeof(sdio_disk));
-  DUBUG("size of 'fx_file'   -- %d bytes \n", sizeof(fx_file));
+	
+  DUBUG("sizeof(sdio_disk) = %d bytes \n", sizeof(sdio_disk));
+  DUBUG("sizeof(fx_file)   = %d bytes \n", sizeof(fx_file));
   
+	
   /* 初始化FileX文件系统 */
+	DUBUG("fx_system_initialize() begin \n");
   fx_system_initialize();
+	DUBUG("fx_system_initialize() complete \n");
+	asmdelay_msec(1000);
 
-  /* 挂载SD卡 */
+	
+  /* 打开SD卡 */
+	DUBUG("fx_media_open() begin \n");
   status =  fx_media_open(&sdio_disk, "STM32_SDIO_DISK", fx_stm32_sd_driver, 0, media_memory, sizeof(media_memory));
   if (status != FX_SUCCESS)
   {
-      DUBUG("media open failed -- 0x%X \n", status);
+      DUBUG("fx_media_open() failed -- 0x%X \n", status);
       while(1){ }
   }
+	DUBUG("fx_media_open() complete \n");
+	asmdelay_msec(1000);
   
+	
 #if defined(FX_ENABLE_FAULT_TOLERANT)
-  /* 启用容错模块 */ 
-  /* 8G卡, f407_sdio耗时6.133s, f103_spi耗时43s */
-  asmdelay_msec(1000);
-  DUBUG("fx fault tolerant enable begin \n");
+  /* 启用容错模块 */
+  DUBUG("fx_fault_tolerant_enable() begin \n");
   status =  fx_fault_tolerant_enable(&sdio_disk, fault_tolerant_memory, sizeof(fault_tolerant_memory));
   if (status != FX_SUCCESS)
   {
-      DUBUG("fault tolerant enable failed -- 0x%X \n", status);
+      DUBUG("fx_fault_tolerant_enable() failed -- 0x%X \n", status);
       while(1){ }
   }
-  DUBUG("fx fault tolerant enable complete \n");
+  DUBUG("fx_fault_tolerant_enable() complete \n");
   asmdelay_msec(1000);
 #endif  // FX_ENABLE_FAULT_TOLERANT
   
-  
-//  /* Check the media and correct all errors. */
-//  status = fx_media_check(&sdio_disk, sratch_memory, SRATCH_MEMORY_SIZE,
-//                          FX_FAT_CHAIN_ERROR |
-//                          FX_DIRECTORY_ERROR |
-//                          FX_LOST_CLUSTER_ERROR, &detected_errors);
-  status = fx_media_check(&sdio_disk, sratch_memory, SRATCH_MEMORY_SIZE, 0, &detected_errors);
+
+#if MEDIA_CHECK_ENABLE
+  /* Check the media and correct all errors. */
+	DUBUG("fx_media_check() begin \n");
+	status = fx_media_check(&sdio_disk, sratch_memory, SRATCH_MEMORY_SIZE,
+												FX_FAT_CHAIN_ERROR |
+												FX_DIRECTORY_ERROR |
+												FX_LOST_CLUSTER_ERROR, &detected_errors);
   DUBUG("media check -- 0x%X \n", (uint32_t)detected_errors);
   if (status != FX_SUCCESS)
   {
       DUBUG("media check failed -- 0x%X \n", status);
       while(1){ }
   }
-  
+  DUBUG("fx_media_check() complete \n");
+	asmdelay_msec(1000);
+#endif	
+
+
   /* Create a file called boot_count.dat in the root directory.  */
-  // status =  fx_file_create(&sdio_disk, "count01-1361-136817-13581683.dat");
-  status =  fx_file_create(&sdio_disk, PATH);
-  /* Check the create status.  */
-  if (status != FX_SUCCESS)
+	DUBUG("fx_file_create() begin \n");
+  status = fx_file_create(&sdio_disk, PATH);
+  if (status != FX_SUCCESS) /* Check the create status.  */
   {
       /* Check for an already created status. This is expected on the
          second pass of this loop!  */
       if (status != FX_ALREADY_CREATED)
       {
-          DUBUG("file create failed -- 0x%X \n", status);
+          DUBUG("fx_file_create() failed -- 0x%X \n", status);
           while(1){ }
       }
   }
-  DUBUG("file create success \n");
-
+  DUBUG("fx_file_create() complete \n");
+	asmdelay_msec(1000);
   
-  // 初始化测试数组
-  for(uint16_t i = 0; i < 1024; i++) {
-    _count[i] = i;
+	
+  /* 初始化测试数组 */
+  for(uint16_t i = 0; i < TEST_DATA_LENGTH; i++) {
+    test_data[i] = i;
   }
 
     
   /* Infinite loop */
   while (1) {
-    /**
-     * 读写周期测试: 
-     * f4: 21ms(open-seek-read4-seek-write1024-close); 
-     * f4: 20ms(seek-read4-seek-write1024); 
-     * f4: 8-10ms(open-write1024-close); 
-     */
-    /* 写方式打开文件, 文件打开后偏移为文件末尾  */
+
+    /* 写方式打开文件, 文件打开后偏移为文件末尾 */
+		DUBUG("fx_file_open() begin \n");
     status =  fx_file_open(&sdio_disk, &fx_file, PATH, FX_OPEN_FOR_WRITE);
     if (status != FX_SUCCESS)
     {
-        DUBUG("file open-w failed -- 0x%X \n", status);
-//        while(1){ }
+        DUBUG("fx_file_open() failed -- 0x%X \n", status);
+        //while(1){ }
     }
+		DUBUG("fx_file.fx_file_current_file_offset = %u \n", (uint32_t)fx_file.fx_file_current_file_offset);
+		DUBUG("fx_file_open() complete \n");
 
-//    /* 设置到倒数4字节处位置读取  */
-//    status =  fx_file_seek(&fx_file, COUNT_LENGTH - 4);
+		
+//    /* 设置偏移位置 */
+//		DUBUG("fx_file_seek() begin \n");
+//    status =  fx_file_seek(&fx_file, test_count * TEST_DATA_LENGTH);
 //    if (status != FX_SUCCESS)
 //    {
-//        DUBUG("set file oft failed -- 0x%X \n", status);
-//        while(1){ }
+//        DUBUG("fx_file_seek() failed -- 0x%X \n", status);
+//        //while(1){ }
 //    }
+//		DUBUG("fx_file_seek() complete \n");
 
+		
 //    /* 读文件 */
 //    status =  fx_file_read(&fx_file, &boot_count, sizeof(boot_count), &bw);
 //    if(bw != sizeof(boot_count)) {
@@ -286,40 +313,48 @@ int main(void) {
 //    }
 
 
-    /* 向文件写入数据, 修改尾部数据为计数器  */
-    // ((uint32_t *)_count)[(COUNT_LENGTH >> 2) - 1] = boot_count;
-    ((uint32_t *)_count)[0] = 0x5555AAAA;
-    ((uint32_t *)_count)[(COUNT_LENGTH >> 2) - 1] = 0x5555AAAA;
+    /* 向文件写入数据 */
+		DUBUG("write test_count: %d \n", test_count);
+    ((uint32_t *)test_data)[0] = 0x5555AAAA;                           // 第一个word
+		((uint32_t *)test_data)[(TEST_DATA_LENGTH >> 2) - 2] = test_count++; // 倒数第二个word
+    ((uint32_t *)test_data)[(TEST_DATA_LENGTH >> 2) - 1] = 0x5555AAAA; // 最后一个word
     if (status == FX_SUCCESS) {
-      status = fx_file_write(&fx_file, _count, sizeof(_count));
-      // status = fx_file_write(&fx_file, &boot_count, sizeof(boot_count));
+			DUBUG("fx_file_write() begin \n");
+      status = fx_file_write(&fx_file, test_data, sizeof(test_data));
       if (status != FX_SUCCESS)
       {
-          DUBUG("file write failed -- 0x%X \n", status);
-//        while(1){ }
+          DUBUG("fx_file_write() failed -- 0x%X \n", status);
+          //while(1){ }
       }
+			DUBUG("fx_file_write() complete \n");
     }
     
-    /* 关闭文件  */
+		
+    /* 关闭文件 */
+		DUBUG("fx_file_close() begin \n");
     status =  fx_file_close(&fx_file);
     if (status != FX_SUCCESS)
     {
-        DUBUG("fiel close failed -- 0x%X \n", status);
-//        while(1){ }
-    }        
+        DUBUG("fx_file_close() failed -- 0x%X \n", status);
+        //while(1){ }
+    }
+		DUBUG("fx_file_close() complete \n");
 
+		
 #if !defined(FX_ENABLE_FAULT_TOLERANT)    
     /* 保证文件写入全部生效 */
+		DUBUG("fx_media_flush() begin \n");
     status = fx_media_flush(&sdio_disk);
     if (status != FX_SUCCESS)
     {
-        DUBUG("media flush failed-- 0x%X \n", status);
+        DUBUG("fx_media_flush() failed-- 0x%X \n", status);
     }
+		DUBUG("fx_media_flush() complete \n");
 #endif  // !FX_ENABLE_FAULT_TOLERANT    
 
-    // 延时10ms
-    asmdelay_msec(10);
-    DUBUG("owc \n");
+		
+    /* 延时 */ 
+    asmdelay_msec(1000);
   }
   
    /* 卸载SD卡 */

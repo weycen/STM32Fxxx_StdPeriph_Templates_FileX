@@ -53,6 +53,23 @@ static uint8_t is_initialized = 0;
 
 extern ULONG tx_time_get(void);
 
+
+
+
+#define FX_DRIVER_DEBUG_ENABLE         1
+
+
+#if FX_DRIVER_DEBUG_ENABLE
+  extern void uartstdio_printf(const char *pcString, ...);
+
+  #define FX_DRIVER_DEBUG(fmt, args...)  do{ uartstdio_printf(fmt, ##args); }while(0)
+#else 
+  #define FX_DRIVER_DEBUG(fmt, args...)
+#endif
+
+
+	
+
 static int32_t check_sd_status(uint32_t instance)
 {
     // TODO(Qiu Chengwei): 时间获取函数需实现.
@@ -100,6 +117,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
     {
         case FX_DRIVER_INIT:
         {
+					FX_DRIVER_DEBUG("(FX_DRIVER_INIT)         \n");
 #if (FX_DRIVER_CALLS_SD_INIT == 1)
             /* Initialize the SD instance */
             if (is_initialized == 0)
@@ -122,6 +140,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 
         case FX_DRIVER_UNINIT:
         {
+					FX_DRIVER_DEBUG("(FX_DRIVER_UNINIT)       \n");
 #if (FX_DRIVER_CALLS_SD_INIT == 1)
             SD_DeInit();
             is_initialized = 0;
@@ -133,6 +152,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 
         case FX_DRIVER_READ:
         {
+					  FX_DRIVER_DEBUG("(FX_DRIVER_READ)       ");
             media_ptr->fx_media_driver_status = FX_IO_ERROR;
             unaligned_buffer = (UINT)(media_ptr->fx_media_driver_buffer) & 0x3;
 
@@ -147,6 +167,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 
         case FX_DRIVER_WRITE:
         {
+					  FX_DRIVER_DEBUG("(FX_DRIVER_WRITE)      ");
             media_ptr->fx_media_driver_status = FX_IO_ERROR;
             unaligned_buffer = (UINT)(media_ptr->fx_media_driver_buffer) & 0x3;
 
@@ -161,6 +182,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 
         case FX_DRIVER_FLUSH:
         {
+					  FX_DRIVER_DEBUG("(FX_DRIVER_FLUSH)      \n");
             /* Return driver success.  */
             media_ptr->fx_media_driver_status =  FX_SUCCESS;
             break;
@@ -168,6 +190,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 
         case FX_DRIVER_ABORT:
         {
+					  FX_DRIVER_DEBUG("(FX_DRIVER_ABORT)      \n");
             /* Return driver success.  */
             media_ptr->fx_media_driver_status =  FX_SUCCESS;
             break;
@@ -175,6 +198,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 
         case FX_DRIVER_BOOT_READ:
         {
+					  FX_DRIVER_DEBUG("(FX_DRIVER_BOOT_READ)  ");
             /* the boot sector is the sector zero */
             status = sd_read_data(media_ptr, 0, media_ptr->fx_media_driver_sectors, 1);
 
@@ -228,6 +252,7 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 
         case FX_DRIVER_BOOT_WRITE:
         {
+					  FX_DRIVER_DEBUG("(FX_DRIVER_BOOT_WRITE) ");
             status = sd_write_data(media_ptr, 0, media_ptr->fx_media_driver_sectors, 1);
 
             media_ptr->fx_media_driver_status = status;
@@ -256,7 +281,7 @@ static UINT sd_read_data(FX_MEDIA *media_ptr, ULONG start_sector, UINT num_secto
 {
     UINT status;
 
-    // uartstdio_printf("read  %10d, %d \n", start_sector, num_sectors);
+	  FX_DRIVER_DEBUG("read__blocks(%10u, %u) \n", start_sector, num_sectors);
     status = SD_ReadBlocks((uint8_t*)media_ptr->fx_media_driver_buffer, start_sector << 9, DEFAULT_SECTOR_SIZE, num_sectors);
 
     if (status != SD_OK)
@@ -285,7 +310,7 @@ static UINT sd_write_data(FX_MEDIA *media_ptr, ULONG start_sector, UINT num_sect
 {
     UINT status;
 
-    // uartstdio_printf("write %10d, %d \n", start_sector, num_sectors);
+	  FX_DRIVER_DEBUG("write_blocks(%10u, %u) \n", start_sector, num_sectors);
     status = SD_WriteBlocks((uint8_t*)media_ptr->fx_media_driver_buffer, start_sector << 9, DEFAULT_SECTOR_SIZE, num_sectors);
    
     if (status != SD_OK)
